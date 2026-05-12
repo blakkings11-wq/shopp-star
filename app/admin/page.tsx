@@ -586,41 +586,82 @@ export default function AdminPage() {
   }
 
   async function updateProduct() {
-    if (!editingProduct) return;
+    if (!editingProduct) {
+      alert("Nenhum produto selecionado para editar.");
+      return;
+    }
 
-    if (!editName || !editPrice) {
+    const produtoId = String(editingProduct.id).trim();
+
+    if (!produtoId) {
+      alert("Erro: ID do produto não encontrado.");
+      return;
+    }
+
+    if (!editName.trim() || !editPrice.trim()) {
       alert("Preencha nome e preço");
       return;
     }
 
-    if (isNaN(moneyToNumber(editPrice))) {
+    const novoPreco = moneyToNumber(editPrice);
+    const novoPrecoAntigo = editOldPrice.trim() ? moneyToNumber(editOldPrice) : null;
+    const novoEstoque = editStock.trim() ? Number(editStock) : 0;
+
+    if (isNaN(novoPreco)) {
       alert("Preço inválido");
       return;
     }
 
-    const { error } = await supabase
-      .from("products")
-      .update({
-        name: editName,
-        price: moneyToNumber(editPrice),
-        old_price: editOldPrice ? moneyToNumber(editOldPrice) : null,
-        service: editService,
-        stock: Number(editStock),
-        image_url: editImageUrl,
-        category: editCategory.toLowerCase(),
-        description: editDescription,
-        delivery_content: editDeliveryContent,
-      })
-      .eq("id", editingProduct.id);
-
-    if (error) {
-      alert("Erro ao atualizar: " + error.message);
+    if (novoPrecoAntigo !== null && isNaN(novoPrecoAntigo)) {
+      alert("Preço antigo inválido");
       return;
     }
 
-    alert("Produto atualizado!");
+    if (isNaN(novoEstoque)) {
+      alert("Estoque inválido");
+      return;
+    }
+
+    const payload = {
+      name: editName.trim(),
+      price: novoPreco,
+      old_price: novoPrecoAntigo,
+      service: editService.trim(),
+      stock: novoEstoque,
+      image_url: editImageUrl.trim() || null,
+      category: editCategory.trim().toLowerCase(),
+      description: editDescription.trim() || null,
+      delivery_content: editDeliveryContent.trim() || null,
+    };
+
+    const { data, error } = await supabase
+      .from("products")
+      .update(payload)
+      .eq("id", produtoId)
+      .select()
+      .single();
+
+    if (error) {
+      alert("Erro ao atualizar produto: " + error.message);
+      console.error("Erro updateProduct:", error);
+      return;
+    }
+
+    if (!data) {
+      alert("Nenhum produto foi atualizado. Confira se o ID existe no Supabase.");
+      return;
+    }
+
+    alert("Produto atualizado com sucesso!");
+
+    setProducts((currentProducts) =>
+      currentProducts.map((product) =>
+        product.id === produtoId ? (data as Product) : product
+      )
+    );
+
     cancelEditProduct();
-    loadProducts();
+    await loadProducts();
   }
 
   async function deleteProduct(id: string) {
