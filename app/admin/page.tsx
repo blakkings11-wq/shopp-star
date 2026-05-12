@@ -638,8 +638,7 @@ export default function AdminPage() {
       .from("products")
       .update(payload)
       .eq("id", produtoId)
-      .select()
-      .single();
+      .select();
 
     if (error) {
       alert("Erro ao atualizar produto: " + error.message);
@@ -647,8 +646,12 @@ export default function AdminPage() {
       return;
     }
 
-    if (!data) {
-      alert("Nenhum produto foi atualizado. Confira se o ID existe no Supabase.");
+    const updatedProduct = data?.[0] as Product | undefined;
+
+    if (!updatedProduct) {
+      alert("Produto atualizado, mas o Supabase não retornou os dados. Vou recarregar a lista.");
+      cancelEditProduct();
+      await loadProducts();
       return;
     }
 
@@ -656,7 +659,7 @@ export default function AdminPage() {
 
     setProducts((currentProducts) =>
       currentProducts.map((product) =>
-        product.id === produtoId ? (data as Product) : product
+        product.id === produtoId ? updatedProduct : product
       )
     );
 
