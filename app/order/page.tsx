@@ -11,19 +11,13 @@ type Order = {
   total: number;
   status: string;
   items: any[];
+  delivery_content: string | null;
 };
 
-type Delivery = {
-  id: string;
-  order_code: string;
-  product_id: string;
-  content: string;
-};
 
 export default function OrderPage() {
   const [order, setOrder] = useState<Order | null>(null);
-  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
-  const [progress, setProgress] = useState(0);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     async function loadOrder() {
@@ -43,81 +37,32 @@ export default function OrderPage() {
 
       setOrder(data as Order);
 
-      if (data.status === "pendente") {
-        iniciarAprovacao(data as Order);
-      } else {
-        loadDeliveries(orderCode);
+      if (data.status === "entregue") {
+        localStorage.removeItem("cart");
       }
     }
 
     loadOrder();
+
+    const interval = setInterval(loadOrder, 5000);
+
+    return () => clearInterval(interval);
   }, []);
 
-  async function loadDeliveries(orderCode: string) {
-    const { data } = await supabase
-      .from("deliveries")
-      .select("*")
-      .eq("order_code", orderCode);
+  function copyDelivery(content: string) {
+    navigator.clipboard.writeText(content);
+    setCopied(true);
 
-    setDeliveries((data as Delivery[]) || []);
-  }
-
-  async function createDeliveries(orderData: Order) {
-    for (const item of orderData.items) {
-      const { data: product } = await supabase
-        .from("products")
-        .select("delivery_content")
-        .eq("id", item.id)
-        .single();
-
-      const content =
-        product?.delivery_content ||
-        "Entrega pendente. Aguarde contato da Shopp Star.";
-
-      await supabase.from("deliveries").insert({
-        order_code: orderData.order_code,
-        product_id: item.id,
-        content,
-      });
-    }
-
-    loadDeliveries(orderData.order_code);
-  }
-
-  function iniciarAprovacao(orderData: Order) {
-    let current = 0;
-
-    const interval = setInterval(async () => {
-      current += 15;
-      setProgress(current);
-
-      if (current >= 100) {
-        clearInterval(interval);
-
-        const { error } = await supabase
-          .from("orders")
-          .update({ status: "pago" })
-          .eq("order_code", orderData.order_code);
-
-        if (error) {
-          alert("Erro ao atualizar pedido: " + error.message);
-          return;
-        }
-
-        const updatedOrder = { ...orderData, status: "pago" };
-        setOrder(updatedOrder);
-
-        await createDeliveries(updatedOrder);
-
-        localStorage.removeItem("cart");
-      }
-    }, 800);
+    setTimeout(() => {
+      setCopied(false);
+    }, 2500);
   }
 
   function timelineStatus(index: number) {
     if (!order) return false;
 
-    if (order.status === "pago") return true;
+    if (order.status === "entregue") return true;
+    if (order.status === "pago") return index <= 2;
     if (order.status === "pendente") return index === 0;
 
     return index === 0;
@@ -205,13 +150,15 @@ export default function OrderPage() {
 
               <div className="relative z-10">
                 <div className="text-[90px] mb-4 animate-pulse">
-                  {order.status === "pago" ? "✅" : "⚡"}
+                  {order.status === "entregue" ? "🎁" : order.status === "pago" ? "✅" : "⏳"}
                 </div>
 
                 <h1 className="text-4xl font-black glitch-text mb-2">
-                  {order.status === "pago"
+                  {order.status === "entregue"
+                    ? "Produto entregue"
+                    : order.status === "pago"
                     ? "Pagamento aprovado"
-                    : "Processando pagamento"}
+                    : "Aguardando pagamento"}
                 </h1>
 
                 <p className="text-zinc-400 mb-6">
@@ -222,16 +169,25 @@ export default function OrderPage() {
                 </p>
 
                 {order.status === "pendente" && (
-                  <div className="mb-8">
-                    <div className="w-full bg-white/10 rounded-full h-4 overflow-hidden border border-purple-500/20">
-                      <div
-                        className="h-full bg-gradient-to-r from-purple-600 via-pink-500 to-violet-500 transition-all duration-300 shadow-[0_0_25px_rgba(168,85,247,0.8)]"
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
+                  <div className="mb-8 bg-yellow-500/10 border border-yellow-500/30 rounded-3xl p-5">
+                    <p className="text-yellow-300 font-black text-xl">
+                      ⏳ Pagamento pendente
+                    </p>
 
-                    <p className="text-purple-300 mt-3 font-bold">
-                      Confirmando pagamento...
+                    <p className="text-zinc-400 mt-2">
+                      Faça o Pix e aguarde o admin confirmar o pagamento.
+                    </p>
+                  </div>
+                )}
+
+                {order.status === "pago" && (
+                  <div className="mb-8 bg-green-500/10 border border-green-500/30 rounded-3xl p-5">
+                    <p className="text-green-300 font-black text-xl">
+                      ✅ Pagamento aprovado
+                    </p>
+
+                    <p className="text-zinc-400 mt-2">
+                      Agora aguarde o admin liberar sua entrega.
                     </p>
                   </div>
                 )}
@@ -246,17 +202,17 @@ export default function OrderPage() {
                     {
                       icon: "💳",
                       title: "Pagamento",
-                      desc: "Confirmação automática ativa.",
+                      desc: "Aguardando confirmação do admin.",
                     },
                     {
                       icon: "⚡",
                       title: "Entrega",
-                      desc: "Preparando acesso digital.",
+                      desc: "Entrega liberada pelo admin.",
                     },
                     {
                       icon: "🎉",
                       title: "Finalizado",
-                      desc: "Produto liberado na tela.",
+                      desc: "Produto aparece nesta tela.",
                     },
                   ].map((step, index) => {
                     const active = timelineStatus(index);
@@ -346,48 +302,72 @@ export default function OrderPage() {
               </div>
             </div>
 
-            {order.status === "pago" && (
-              <div className="mt-8 neon-card rounded-3xl p-6 text-left border border-green-500/30">
-                <h2 className="text-2xl font-black text-green-400 mb-4">
-                  🎁 Seus Produtos
-                </h2>
+            <div className="mt-8 neon-card rounded-3xl p-6 text-left border border-green-500/30">
+              <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
+                <div>
+                  <h2 className="text-2xl font-black text-green-400">
+                    🎁 Entrega do Produto
+                  </h2>
 
-                {deliveries.length === 0 ? (
-                  <p className="text-zinc-400">Gerando entrega...</p>
-                ) : (
-                  <div className="space-y-4">
-                    {deliveries.map((d) => (
-                      <div
-                        key={d.id}
-                        className="bg-black/40 border border-green-500/30 p-4 rounded-2xl"
-                      >
-                        <p className="text-zinc-400 mb-2">
-                          Conteúdo entregue:
-                        </p>
+                  <p className="text-zinc-400 text-sm mt-1">
+                    A entrega aparece aqui quando o admin liberar seu pedido.
+                  </p>
+                </div>
 
-                        <div className="flex gap-2">
-                          <input
-                            value={d.content}
-                            readOnly
-                            className="input flex-1 mb-0"
-                          />
-
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(d.content);
-                              alert("Copiado!");
-                            }}
-                            className="neon-button-strong px-4 rounded-xl"
-                          >
-                            Copiar
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                {copied && (
+                  <span className="bg-green-500/10 border border-green-500/40 text-green-300 px-4 py-2 rounded-full text-sm font-black">
+                    Copiado ✅
+                  </span>
                 )}
               </div>
-            )}
+
+              {order.status !== "entregue" && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-5">
+                  <p className="text-yellow-300 font-black">
+                    {order.status === "pendente"
+                      ? "⏳ Aguardando pagamento"
+                      : "✅ Pagamento aprovado"}
+                  </p>
+
+                  <p className="text-zinc-400 mt-2">
+                    {order.status === "pendente"
+                      ? "Depois que o Pix for confirmado pelo admin, sua entrega será preparada."
+                      : "O admin já confirmou o pagamento. Aguarde a entrega manual aparecer nesta tela."}
+                  </p>
+                </div>
+              )}
+
+              {order.status === "entregue" && order.delivery_content && (
+                <div className="bg-black/40 border border-green-500/30 p-5 rounded-2xl">
+                  <p className="text-zinc-400 mb-3">
+                    Conteúdo entregue:
+                  </p>
+
+                  <pre className="w-full min-h-[120px] whitespace-pre-wrap break-words bg-black/60 border border-white/10 rounded-2xl p-4 text-zinc-100 mb-4">
+                    {order.delivery_content}
+                  </pre>
+
+                  <button
+                    onClick={() => copyDelivery(order.delivery_content || "")}
+                    className="neon-button-strong px-5 py-3 rounded-xl font-black"
+                  >
+                    📋 Copiar entrega
+                  </button>
+                </div>
+              )}
+
+              {order.status === "entregue" && !order.delivery_content && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-5">
+                  <p className="text-yellow-300 font-black">
+                    Pedido entregue, mas sem conteúdo cadastrado.
+                  </p>
+
+                  <p className="text-zinc-400 mt-2">
+                    Entre em contato com o suporte da Shopp Star.
+                  </p>
+                </div>
+              )}
+            </div>
 
             <a
               href="/"
