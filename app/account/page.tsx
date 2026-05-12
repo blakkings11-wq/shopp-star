@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
 type UserData = {
@@ -10,6 +11,9 @@ type UserData = {
 };
 
 export default function AccountPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+
   const [user, setUser] = useState<UserData>({
     name: "",
     email: "",
@@ -37,9 +41,14 @@ export default function AccountPage() {
   }, []);
 
   async function loadUser() {
-    const { data } = await supabase.auth.getUser();
+    const { data, error } = await supabase.auth.getUser();
 
-    const metadata = data.user?.user_metadata;
+    if (error || !data.user) {
+      router.push("/login");
+      return;
+    }
+
+    const metadata = data.user.user_metadata;
 
     const name =
       metadata?.full_name ||
@@ -60,11 +69,27 @@ export default function AccountPage() {
     });
 
     console.log("USER METADATA:", metadata);
+
+    setLoading(false);
   }
 
   async function logout() {
     await supabase.auth.signOut();
-    window.location.href = "/login";
+    router.push("/login");
+  }
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+
+          <p className="text-purple-300 font-black tracking-widest">
+            Carregando conta...
+          </p>
+        </div>
+      </main>
+    );
   }
 
   return (
